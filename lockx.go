@@ -19,7 +19,7 @@ type globalLock struct {
 }
 
 func NewGlobalLock(ctx context.Context, red *redis.Client, uniqueKey string) *globalLock {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*30)
+	ctx, cancel := context.WithTimeout(ctx, time.Minute*10)
 	return &globalLock{
 		redis:     red,
 		ctx:       ctx,
@@ -82,7 +82,7 @@ func (g *globalLock) Unlock() bool {
 		log.Println("globalLock Unlock", resp, err, g.uniqueKey, g.value)
 	}
 	g.cancel()
-	return false
+	return true
 }
 
 // 刷新锁
