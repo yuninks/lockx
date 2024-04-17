@@ -18,38 +18,6 @@ type globalLock struct {
 	value     string
 }
 
-type option struct {
-	lockTimeout time.Time // 锁的超时时间
-}
-
-func defaultOption() *option {
-	return &option{
-		lockTimeout: time.Minute * 10 // 默认是10分钟
-	}
-}
-
-var opt *option
-
-func init() {
-	opt = defaultOption()
-}
-
-// 设置
-func InitOption(opts ...Option) {
-	for _,app := range opts {
-		app(opt)
-	}
-}
-
-type Option func(*option)
-
-func SetTimeout(t time.Time) Option {
-	return func(o *option) {
-		o.lockTimeout = t
-	}
-}
-
-
 func NewGlobalLock(ctx context.Context, red *redis.Client, uniqueKey string) *globalLock {
 	ctx, cancel := context.WithTimeout(ctx, opt.lockTimeout)
 	return &globalLock{
