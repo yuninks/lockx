@@ -1,4 +1,4 @@
-module code.yun.ink/pkg/lockx
+module github.com/yuninks/lockx
 
 go 1.19
 
