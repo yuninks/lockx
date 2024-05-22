@@ -11,14 +11,14 @@ import (
 
 // 全局锁
 type globalLock struct {
-	redis     *redis.Client
+	redis     redis.UniversalClient
 	ctx       context.Context
 	cancel    context.CancelFunc
 	uniqueKey string
 	value     string
 }
 
-func NewGlobalLock(ctx context.Context, red *redis.Client, uniqueKey string) *globalLock {
+func NewGlobalLock(ctx context.Context, red redis.UniversalClient, uniqueKey string) *globalLock {
 	ctx, cancel := context.WithTimeout(ctx, opt.lockTimeout)
 	return &globalLock{
 		redis:     red,
@@ -44,7 +44,7 @@ func (g *globalLock) Lock() bool {
 	resp, err := g.redis.Eval(g.ctx, script, []string{g.uniqueKey}, g.value, 5).Result()
 	if resp != "OK" {
 		_ = err
-		log.Println("globalLock Lock", resp, err, g.uniqueKey, g.value)
+		log.Println("global Lock Lock", resp, err, g.uniqueKey, g.value)
 	}
 	if resp == "OK" {
 		g.refresh()
@@ -79,7 +79,7 @@ func (g *globalLock) Unlock() bool {
 
 	resp, err := g.redis.Eval(g.ctx, script, []string{g.uniqueKey}, g.value).Result()
 	if resp != "OK" {
-		log.Println("globalLock Unlock", resp, err, g.uniqueKey, g.value)
+		log.Println("global Lock Unlock", resp, err, g.uniqueKey, g.value)
 	}
 	g.cancel()
 	return true
@@ -114,7 +114,7 @@ func (g *globalLock) refreshExec() bool {
 
 	resp, err := g.redis.Eval(g.ctx, script, []string{g.uniqueKey}, g.value, 5).Result()
 	if resp != "OK" {
-		log.Println("globalLock refresh", resp, err, g.uniqueKey, g.value)
+		log.Println("global Lock refresh", resp, err, g.uniqueKey, g.value)
 	}
 	return resp == "OK"
 }

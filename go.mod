@@ -1,11 +1,8 @@
 module github.com/yuninks/lockx
 
-go 1.19
+go 1.20
 
-require (
-	code.yun.ink/open/timer v1.0.1
-	github.com/go-redis/redis/v8 v8.11.5
-)
+require github.com/go-redis/redis/v8 v8.11.5
 
 require (
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect

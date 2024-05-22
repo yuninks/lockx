@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"code.yun.ink/open/timer/lockx"
+	"github.com/yuninks/lockx"
 	"github.com/go-redis/redis/v8"
 )
 
