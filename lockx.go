@@ -3,7 +3,6 @@ package lockx
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -43,8 +42,7 @@ func (g *globalLock) Lock() bool {
 
 	resp, err := g.redis.Eval(g.ctx, script, []string{g.uniqueKey}, g.value, 5).Result()
 	if resp != "OK" {
-		_ = err
-		log.Println("global Lock Lock", resp, err, g.uniqueKey, g.value)
+		opt.logger.Errorf(g.ctx, "global lock err resp:%+v err:%+v uniKey:%+v value:%+v", resp, err, g.uniqueKey, g.value)
 	}
 	if resp == "OK" {
 		g.refresh()
@@ -79,7 +77,7 @@ func (g *globalLock) Unlock() bool {
 
 	resp, err := g.redis.Eval(g.ctx, script, []string{g.uniqueKey}, g.value).Result()
 	if resp != "OK" {
-		log.Println("global Lock Unlock", resp, err, g.uniqueKey, g.value)
+		opt.logger.Errorf(g.ctx, "global Unlock err resp:%+v err:%+v uniKey:%+v value:%+v", resp, err, g.uniqueKey, g.value)
 	}
 	g.cancel()
 	return true
@@ -114,7 +112,8 @@ func (g *globalLock) refreshExec() bool {
 
 	resp, err := g.redis.Eval(g.ctx, script, []string{g.uniqueKey}, g.value, 5).Result()
 	if resp != "OK" {
-		log.Println("global Lock refresh", resp, err, g.uniqueKey, g.value)
+		opt.logger.Errorf(g.ctx, "global refresh err resp:%+v err:%+v uniKey:%+v value:%+v", resp, err, g.uniqueKey, g.value)
+		return false
 	}
-	return resp == "OK"
+	return true
 }
