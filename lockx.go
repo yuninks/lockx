@@ -17,6 +17,8 @@ type globalLock struct {
 	value     string
 }
 
+
+
 func NewGlobalLock(ctx context.Context, red redis.UniversalClient, uniqueKey string) *globalLock {
 	ctx, cancel := context.WithTimeout(ctx, opt.lockTimeout)
 	return &globalLock{
