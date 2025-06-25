@@ -2,10 +2,10 @@ package lockx
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/google/uuid"
 )
 
 // 全局锁
@@ -17,16 +17,17 @@ type globalLock struct {
 	value     string
 }
 
-
-
 func NewGlobalLock(ctx context.Context, red redis.UniversalClient, uniqueKey string) *globalLock {
 	ctx, cancel := context.WithTimeout(ctx, opt.lockTimeout)
+
+	u, _ := uuid.NewV7()
+
 	return &globalLock{
 		redis:     red,
 		ctx:       ctx,
 		cancel:    cancel,
 		uniqueKey: uniqueKey,
-		value:     fmt.Sprintf("%d", time.Now().UnixNano()),
+		value:     u.String(),
 	}
 }
 
