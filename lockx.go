@@ -31,6 +31,11 @@ func NewGlobalLock(ctx context.Context, red redis.UniversalClient, uniqueKey str
 	}
 }
 
+// 获取上下文
+func (l *globalLock) GetCtx() context.Context {
+	return l.ctx
+}
+
 // 获取锁
 func (g *globalLock) Lock() bool {
 
@@ -96,6 +101,7 @@ func (g *globalLock) refresh() {
 				g.refreshExec()
 			case <-g.ctx.Done():
 				t.Stop()
+				g.Unlock()
 				return
 			}
 		}
@@ -114,8 +120,12 @@ func (g *globalLock) refreshExec() bool {
 	`
 
 	resp, err := g.redis.Eval(g.ctx, script, []string{g.uniqueKey}, g.value, 5).Result()
-	if resp != "OK" {
+	if err != nil {
 		opt.logger.Errorf(g.ctx, "global refresh err resp:%+v err:%+v uniKey:%+v value:%+v", resp, err, g.uniqueKey, g.value)
+	}
+	if resp == "ERROR" {
+		opt.logger.Errorf(g.ctx, "global refresh err resp:%+v err:%+v uniKey:%+v value:%+v", resp, err, g.uniqueKey, g.value)
+		g.Unlock()
 		return false
 	}
 	return true
