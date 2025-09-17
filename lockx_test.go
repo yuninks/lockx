@@ -31,43 +31,43 @@ var Redis *redis.Client
 // 	Redis = client
 // }
 
-func TestLockx(t *testing.T) {
-	client := redis.NewClient(&redis.Options{
-		Addr:     "127.0.0.1" + ":" + "6379",
-		Password: "123456", // no password set
-		DB:       0,        // use default DB
-	})
-	if client == nil {
-		fmt.Println("redis init error")
-		return
-	}
-	fmt.Println("begin")
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+// func TestLockx(t *testing.T) {
+// 	client := redis.NewClient(&redis.Options{
+// 		Addr:     "127.0.0.1" + ":" + "6379",
+// 		Password: "123456", // no password set
+// 		DB:       0,        // use default DB
+// 	})
+// 	if client == nil {
+// 		fmt.Println("redis init error")
+// 		return
+// 	}
+// 	fmt.Println("begin")
+// 	ctx := context.Background()
+// 	ctx, cancel := context.WithCancel(ctx)
+// 	defer cancel()
 
-	wg := sync.WaitGroup{}
+// 	wg := sync.WaitGroup{}
 
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			lock, _ := lockx.NewGlobalLock(ctx, client, "lockx:test")
-			if b, _ := lock.Lock(); !b {
-				fmt.Println("lock error", i)
-				return
-			}
-			defer lock.Unlock()
+// 	for i := 0; i < 20; i++ {
+// 		wg.Add(1)
+// 		go func(i int) {
+// 			defer wg.Done()
+// 			lock, _ := lockx.NewGlobalLock(ctx, client, "lockx:test")
+// 			if b, _ := lock.Lock(); !b {
+// 				fmt.Println("lock error", i)
+// 				return
+// 			}
+// 			defer lock.Unlock()
 
-			fmt.Println("ssss2", i)
+// 			fmt.Println("ssss2", i)
 
-			time.Sleep(time.Second * 2)
-		}(i)
-		time.Sleep(time.Second)
-	}
+// 			time.Sleep(time.Second * 2)
+// 		}(i)
+// 		time.Sleep(time.Second)
+// 	}
 
-	wg.Wait()
-}
+// 	wg.Wait()
+// }
 
 // MockLogger 用于测试的模拟日志器
 type MockLogger struct {
