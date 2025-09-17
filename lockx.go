@@ -212,3 +212,7 @@ func (g *GlobalLock) IsClosed() bool {
 	defer g.closeLock.RUnlock()
 	return g.isClosed
 }
+
+func (l *GlobalLock) GetValue() string {
+	return l.value
+}

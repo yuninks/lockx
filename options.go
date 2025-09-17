@@ -35,7 +35,7 @@ func InitOption(opts ...Option) {
 
 type Option func(*option)
 
-func WithTimeout(t time.Duration) Option {
+func WithLockTimeout(t time.Duration) Option {
 	return func(o *option) {
 		o.lockTimeout = t
 	}
@@ -50,6 +50,24 @@ func WithLogger(logger Logger) Option {
 func WithExpiry(expiry time.Duration) Option {
 	return func(o *option) {
 		o.Expiry = expiry
+	}
+}
+
+func WithRefreshPeriod(period time.Duration) Option {
+	return func(o *option) {
+		o.RefreshPeriod = period
+	}
+}
+
+func WithMaxRetryTimes(times int) Option {
+	return func(o *option) {
+		o.MaxRetryTimes = times
+	}
+}
+
+func WithRetryInterval(interval time.Duration) Option {
+	return func(o *option) {
+		o.RetryInterval = interval
 	}
 }
 
