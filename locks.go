@@ -20,9 +20,9 @@ func Init(ctx context.Context, redis redis.UniversalClient, opts ...Option) erro
 
 // 新起一个锁对象
 // 先Init后New再Lock
-func New(ctx context.Context, uniqueKey string) (*globalLock, error) {
+func New(ctx context.Context, uniqueKey string) (*GlobalLock, error) {
 	if redisConn == nil {
 		return nil, fmt.Errorf("redis client is nil")
 	}
-	return NewGlobalLock(ctx, redisConn, uniqueKey), nil
+	return NewGlobalLock(ctx, redisConn, uniqueKey, globalOpts...)
 }

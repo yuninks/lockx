@@ -27,7 +27,7 @@ func TestSimpleLock(t *testing.T) {
 		t.Log(err)
 		return
 	}
-	if l.Lock() {
+	if b, _ := l.Lock(); b {
 		fmt.Println("lock success")
 		l.Unlock()
 	}

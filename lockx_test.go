@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/yuninks/lockx"
@@ -43,18 +44,22 @@ func TestLockx(t *testing.T) {
 
 	wg := sync.WaitGroup{}
 
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			lock := lockx.NewGlobalLock(ctx, client, "lockx:test")
-			defer lock.Unlock()
-			if !lock.Lock() {
+			lock, _ := lockx.NewGlobalLock(ctx, client, "lockx:test")
+			if b, _ := lock.Lock(); !b {
 				fmt.Println("lock error", i)
 				return
 			}
-			fmt.Println("ssss", i)
+			defer lock.Unlock()
+
+			fmt.Println("ssss2", i)
+
+			time.Sleep(time.Second * 2)
 		}(i)
+		time.Sleep(time.Second)
 	}
 
 	wg.Wait()
