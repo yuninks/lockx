@@ -235,6 +235,9 @@ func TestGlobalLock_Try(t *testing.T) {
 		success, err := lock.Try()
 		assert.True(t, errors.Is(err, context.Canceled))
 		assert.False(t, success)
+
+		err = lock.Unlock()
+		assert.Error(t, err)
 	})
 }
 
@@ -335,6 +338,7 @@ func TestGlobalLock_Refresh(t *testing.T) {
 	t.Run("锁丢失时停止刷新", func(t *testing.T) {
 		mockLogger := new(MockLogger)
 		mockLogger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Return()
+		mockLogger.On("Infof", mock.Anything, mock.Anything, mock.Anything).Return()
 
 		lock, err := lockx.NewGlobalLock(ctx, redisClient, "test-refresh-lost",
 			lockx.WithLogger(mockLogger),
@@ -356,6 +360,8 @@ func TestGlobalLock_Refresh(t *testing.T) {
 		// 验证日志被调用
 		mockLogger.AssertCalled(t, "Errorf", mock.Anything, mock.Anything, mock.Anything)
 
+		// <-lock.GetCtx().Done()
+
 		lock.Unlock()
 	})
 }
@@ -367,7 +373,7 @@ func TestGlobalLock_Concurrency(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("多 goroutine 竞争锁", func(t *testing.T) {
-		const numGoroutines = 10
+		const numGoroutines = 100
 		var successCount int
 		var wg sync.WaitGroup
 		var mu sync.Mutex
@@ -435,6 +441,8 @@ func TestGlobalLock_ContextCancellation(t *testing.T) {
 		// 取消上下文
 		cancel()
 
+		// lock.Unlock()
+
 		// 等待自动清理
 		time.Sleep(5 * time.Second)
 
@@ -453,6 +461,8 @@ func TestGlobalLock_CustomOptions(t *testing.T) {
 
 	t.Run("自定义配置选项", func(t *testing.T) {
 		mockLogger := new(MockLogger)
+		mockLogger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Return()
+		mockLogger.On("Infof", mock.Anything, mock.Anything, mock.Anything).Return()
 
 		lock, err := lockx.NewGlobalLock(ctx, redisClient, "test-custom-options",
 			lockx.WithLockTimeout(5*time.Second),
@@ -484,14 +494,9 @@ func TestGlobalLock_EdgeCases(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("空键名", func(t *testing.T) {
-		lock, err := lockx.NewGlobalLock(ctx, redisClient, "")
-		require.NoError(t, err)
+		_, err := lockx.NewGlobalLock(ctx, redisClient, "")
+		require.Error(t, err)
 
-		success, err := lock.Lock()
-		require.NoError(t, err)
-		assert.True(t, success) // Redis允许空键名
-
-		lock.Unlock()
 	})
 
 	t.Run("非常长的键名", func(t *testing.T) {
@@ -536,4 +541,44 @@ func BenchmarkGlobalLock(b *testing.B) {
 			}
 		}
 	})
+}
+
+func TestTimeout(t *testing.T) {
+	redisClient, teardown := setupTestRedis(t)
+	defer teardown()
+
+	ctx := context.Background()
+
+	begin := time.Now()
+
+	lock, err := lockx.NewGlobalLock(ctx, redisClient, "test-timeout", lockx.WithLockTimeout(time.Second))
+	require.NoError(t, err)
+	success, err := lock.Lock()
+	require.NoError(t, err)
+	assert.True(t, success)
+
+	<-lock.GetCtx().Done()
+	t.Log("Done", time.Since(begin))
+
+}
+
+func TestRedisClose(t *testing.T) {
+	redisClient, teardown := setupTestRedis(t)
+	defer teardown()
+
+	ctx := context.Background()
+
+	begin := time.Now()
+
+	lock, err := lockx.NewGlobalLock(ctx, redisClient, "test-timeout", lockx.WithLockTimeout(time.Hour))
+	require.NoError(t, err)
+	success, err := lock.Lock()
+	require.NoError(t, err)
+	assert.True(t, success)
+
+	redisClient.Close()
+
+	<-lock.GetCtx().Done()
+	t.Log("Done", time.Since(begin))
+
 }

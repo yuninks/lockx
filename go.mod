@@ -1,6 +1,6 @@
 module github.com/yuninks/lockx
 
-go 1.20
+go 1.24
 
 require (
 	github.com/go-redis/redis/v8 v8.11.5
