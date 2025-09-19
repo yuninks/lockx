@@ -117,7 +117,7 @@ func (g *GlobalLock) Try() (bool, error) {
 func (g *GlobalLock) Unlock() error {
 	// 已经关闭就不需要重复关闭
 	if g.setOrGetClose() {
-		g.options.logger.Infof(g.ctx, "global lock already closed, key: %s, value: %s", g.uniqueKey, g.value)
+		// g.options.logger.Infof(g.ctx, "global lock already closed, key: %s, value: %s", g.uniqueKey, g.value)
 		return nil
 	}
 
@@ -143,6 +143,7 @@ func (g *GlobalLock) Unlock() error {
 	if delCount, ok := resp.(int64); ok && delCount == 1 {
 		return nil
 	}
+	g.options.logger.Infof(g.ctx, "global unlock may have failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
 	return fmt.Errorf("lock was already released or owned by another client")
 }
 
@@ -159,7 +160,7 @@ func (g *GlobalLock) startRefresh() {
 			case <-ticker.C:
 				g.refreshExec() 
 			case <-g.ctx.Done():
-				g.options.logger.Infof(g.ctx, "global lock refresh canceled, key: %s, value: %s", g.uniqueKey, g.value)
+				// g.options.logger.Infof(g.ctx, "global lock refresh canceled, key: %s, value: %s", g.uniqueKey, g.value)
 				g.Unlock()
 				return
 			}
