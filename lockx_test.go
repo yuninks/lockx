@@ -396,7 +396,7 @@ func TestGlobalLock_Concurrency(t *testing.T) {
 					mu.Unlock()
 
 					// 持有锁一段时间
-					time.Sleep(100 * time.Millisecond)
+					time.Sleep(1 * time.Second)
 					lock.Unlock()
 				}
 			}(i)
