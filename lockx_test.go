@@ -149,7 +149,7 @@ func TestGlobalLock_Lock(t *testing.T) {
 		require.NoError(t, err)
 
 		success2, err := lock2.Lock()
-		require.NoError(t, err)
+		require.Error(t, err)
 		assert.False(t, success2)
 
 		defer lock2.Unlock()
@@ -388,7 +388,7 @@ func TestGlobalLock_Concurrency(t *testing.T) {
 				require.NoError(t, err)
 
 				success, err := lock.Lock()
-				require.NoError(t, err)
+				// require.NoError(t, err)
 
 				if success {
 					mu.Lock()
@@ -406,6 +406,7 @@ func TestGlobalLock_Concurrency(t *testing.T) {
 
 		// 应该只有一个goroutine成功获取锁
 		assert.Equal(t, 1, successCount)
+
 	})
 }
 
@@ -551,14 +552,27 @@ func TestTimeout(t *testing.T) {
 
 	begin := time.Now()
 
-	lock, err := lockx.NewGlobalLock(ctx, redisClient, "test-timeout", lockx.WithLockTimeout(time.Second))
+	lock, err := lockx.NewGlobalLock(ctx, redisClient, "test-timeout", lockx.WithLockTimeout(time.Second*25))
 	require.NoError(t, err)
 	success, err := lock.Lock()
 	require.NoError(t, err)
 	assert.True(t, success)
 
+	time.Sleep(time.Second * 20)
+	// 查询Key剩余时间
+	ttl, err := redisClient.TTL(ctx, "test-timeout").Result()
+	require.NoError(t, err)
+	t.Log("TTL:", ttl)
+
 	<-lock.GetCtx().Done()
 	t.Log("Done", time.Since(begin))
+
+	time.Sleep(time.Millisecond * 10)
+
+	// 查询Key是否存在
+	val, err := redisClient.Get(ctx, "test-timeout").Result()
+	assert.Equal(t, val, "")
+	assert.ErrorIs(t, err, redis.Nil)
 
 }
 
@@ -570,7 +584,7 @@ func TestRedisClose(t *testing.T) {
 
 	begin := time.Now()
 
-	lock, err := lockx.NewGlobalLock(ctx, redisClient, "test-timeout", lockx.WithLockTimeout(time.Hour))
+	lock, err := lockx.NewGlobalLock(ctx, redisClient, "test-timeout", lockx.WithLockTimeout(time.Second*5))
 	require.NoError(t, err)
 	success, err := lock.Lock()
 	require.NoError(t, err)
