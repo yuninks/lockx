@@ -3,6 +3,7 @@ package lockx
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -29,10 +30,15 @@ func defaultOption() *option {
 	}
 }
 
-var globalOpts []Option
+var (
+	globalOpts      []Option
+	globalOptsMutex sync.RWMutex
+)
 
 // 设置
 func InitOption(opts ...Option) {
+	globalOptsMutex.Lock()
+	defer globalOptsMutex.Unlock()
 	globalOpts = opts
 }
 
@@ -55,6 +61,10 @@ func WithLogger(logger Logger) Option {
 // key有效时间(会自动刷新)
 func WithExpiry(expiry time.Duration) Option {
 	return func(o *option) {
+		// 至少1秒
+		if expiry < time.Second {
+			expiry = time.Second
+		}
 		o.Expiry = expiry
 		if o.Expiry/3 < o.RefreshPeriod {
 			o.RefreshPeriod = o.Expiry / 3
@@ -65,6 +75,10 @@ func WithExpiry(expiry time.Duration) Option {
 // 刷新间隔
 func WithRefreshPeriod(period time.Duration) Option {
 	return func(o *option) {
+		// 至少500毫秒
+		if period < 500*time.Millisecond {
+			period = 500 * time.Millisecond
+		}
 		o.RefreshPeriod = period
 		if o.RefreshPeriod*3 > o.Expiry {
 			o.Expiry = o.RefreshPeriod * 3
@@ -72,9 +86,13 @@ func WithRefreshPeriod(period time.Duration) Option {
 	}
 }
 
-// 最大尝试次数
+// 最大尝试次数(Try)
 func WithMaxRetryTimes(times int) Option {
 	return func(o *option) {
+		// 至少1次
+		if times < 1 {
+			times = 1
+		}
 		o.MaxRetryTimes = times
 	}
 }
