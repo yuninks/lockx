@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 // 全局锁
@@ -62,17 +62,24 @@ func (l *GlobalLock) GetCtx() context.Context {
 
 // 获取锁
 func (g *GlobalLock) Lock() (bool, error) {
+	// 检查Redis客户端是否有效
+	if g.redis == nil {
+		return false, fmt.Errorf("redis client is nil")
+	}
+
+	// 修复竞态条件：使用原子操作检查并设置过期时间
 	script := `
-	if redis.call('set', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2]) then
+	local current_val = redis.call('get', KEYS[1])
+	if current_val == false then
+		-- 锁不存在，尝试获取
+		return redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[2])
+	elseif current_val == ARGV[1] then
+		-- 重入锁：原子地检查并更新过期时间
+		redis.call('expire', KEYS[1], ARGV[2])
 		return 'OK'
 	else
-		local current_val = redis.call('get', KEYS[1])
-		if current_val == ARGV[1] then
-			redis.call('expire', KEYS[1], ARGV[2])
-			return 'OK'
-		else
-			return 'ERROR'
-		end
+		-- 锁被其他客户端持有
+		return false
 	end
 	`
 
@@ -95,10 +102,7 @@ func (g *GlobalLock) Lock() (bool, error) {
 // 尝试获取锁
 func (g *GlobalLock) Try() (bool, error) {
 	for i := 0; i < g.options.MaxRetryTimes; i++ {
-		success, err := g.Lock()
-		if err != nil {
-			return false, err
-		}
+		success, _ := g.Lock()
 		if success {
 			return true, nil
 		}
@@ -143,14 +147,22 @@ func (g *GlobalLock) Unlock() error {
 	if delCount, ok := resp.(int64); ok && delCount == 1 {
 		return nil
 	}
-	g.options.logger.Infof(g.ctx, "global unlock may have failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
+	// 修复空指针解引用：添加nil检查
+	if g.options.logger != nil {
+		g.options.logger.Infof(g.ctx, "global unlock may have failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
+	}
 	return fmt.Errorf("lock was already released or owned by another client")
 }
 
 // 启动刷新goroutine
 func (g *GlobalLock) startRefresh() {
-
 	go func() {
+		defer func() {
+			// 确保goroutine退出时清理资源
+			if r := recover(); r != nil && g.options.logger != nil {
+				g.options.logger.Errorf(g.ctx, "refresh goroutine panic: %v", r)
+			}
+		}()
 
 		ticker := time.NewTicker(g.options.RefreshPeriod)
 		defer ticker.Stop()
@@ -158,10 +170,14 @@ func (g *GlobalLock) startRefresh() {
 		for {
 			select {
 			case <-ticker.C:
-				g.refreshExec() 
+				if !g.refreshExec() {
+					return // 刷新失败时退出goroutine
+				}
 			case <-g.ctx.Done():
-				// g.options.logger.Infof(g.ctx, "global lock refresh canceled, key: %s, value: %s", g.uniqueKey, g.value)
-				g.Unlock()
+				// 使用独立context避免卡住
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				g.unlockWithContext(ctx)
+				cancel()
 				return
 			}
 		}
@@ -187,7 +203,9 @@ func (l *GlobalLock) setOrGetClose() (readyClosed bool) {
 // 执行刷新操作
 func (g *GlobalLock) refreshExec() bool {
 	if g.IsClosed() {
-		g.options.logger.Infof(g.ctx, "global lock already closed, key: %s, value: %s", g.uniqueKey, g.value)
+		if g.options.logger != nil {
+			g.options.logger.Infof(g.ctx, "global lock already closed, key: %s, value: %s", g.uniqueKey, g.value)
+		}
 		return false
 	}
 
@@ -208,9 +226,10 @@ func (g *GlobalLock) refreshExec() bool {
 
 		newCount := atomic.AddInt64(&g.refreshErrCount, 1)
 		if newCount >= 3 {
-			// 关闭锁
 			g.setOrGetClose()
-			g.options.logger.Errorf(g.ctx, "global refresh failed, lock may be lost 3 times, key: %s, value: %s", g.uniqueKey, g.value)
+			if g.options.logger != nil {
+				g.options.logger.Errorf(g.ctx, "global refresh failed, lock may be lost 3 times, key: %s, value: %s", g.uniqueKey, g.value)
+			}
 		}
 		return false
 	}
@@ -219,11 +238,12 @@ func (g *GlobalLock) refreshExec() bool {
 		if g.options.logger != nil {
 			g.options.logger.Errorf(g.ctx, "global refresh failed, lock may be lost, key: %s, value: %s", g.uniqueKey, g.value)
 		}
-		// 关闭锁
 		g.setOrGetClose()
 		return false
 	}
 
+	// 修复：刷新成功时重置错误计数器
+	atomic.StoreInt64(&g.refreshErrCount, 0)
 	return true
 }
 
@@ -236,4 +256,28 @@ func (g *GlobalLock) IsClosed() bool {
 
 func (l *GlobalLock) GetValue() string {
 	return l.value
+}
+
+// unlockWithContext 使用指定context执行unlock，避免goroutine卡住
+func (g *GlobalLock) unlockWithContext(ctx context.Context) error {
+	script := `
+	if redis.call('get', KEYS[1]) == ARGV[1] then
+		return redis.call('del', KEYS[1])
+	else
+		return 0
+	end
+	`
+
+	resp, err := g.redis.Eval(ctx, script, []string{g.uniqueKey}, g.value).Result()
+	if err != nil {
+		if g.options.logger != nil {
+			g.options.logger.Infof(ctx, "global unlock may have failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
+		}
+		return err
+	}
+
+	if delCount, ok := resp.(int64); ok && delCount == 1 {
+		return nil
+	}
+	return fmt.Errorf("lock was already released or owned by another client")
 }
