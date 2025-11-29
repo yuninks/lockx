@@ -24,5 +24,11 @@ func New(ctx context.Context, uniqueKey string) (*GlobalLock, error) {
 	if redisConn == nil {
 		return nil, fmt.Errorf("redis client is nil")
 	}
-	return NewGlobalLock(ctx, redisConn, uniqueKey, globalOpts...)
+	// 修复并发访问问题
+	globalOptsMutex.RLock()
+	opts := make([]Option, len(globalOpts))
+	copy(opts, globalOpts)
+	globalOptsMutex.RUnlock()
+	
+	return NewGlobalLock(ctx, redisConn, uniqueKey, opts...)
 }
