@@ -20,6 +20,7 @@ type GlobalLock struct {
 	value           string
 	isClosed        bool
 	closeLock       sync.RWMutex
+	isCleaned       bool // 是否已经清理过锁，避免重复清理
 	options         *option
 	refreshErrCount int64 // 刷新错误次数
 }
@@ -85,9 +86,7 @@ func (g *GlobalLock) Lock() (bool, error) {
 
 	resp, err := g.redis.Eval(g.ctx, script, []string{g.uniqueKey}, g.value, int(g.options.Expiry.Seconds())).Result()
 	if err != nil {
-		if g.options.logger != nil {
-			g.options.logger.Errorf(g.ctx, "global lock failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
-		}
+		g.options.logger.Errorf(g.ctx, "GlobalLock Lock failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
 		return false, err
 	}
 
@@ -124,6 +123,13 @@ func (g *GlobalLock) Unlock() error {
 		// g.options.logger.Infof(g.ctx, "global lock already closed, key: %s, value: %s", g.uniqueKey, g.value)
 		return nil
 	}
+	g.closeLock.Lock()
+	defer g.closeLock.Unlock()
+
+	if g.isCleaned {
+		return nil
+	}
+	g.isClosed = true
 
 	script := `
 	if redis.call('get', KEYS[1]) == ARGV[1] then
@@ -138,19 +144,18 @@ func (g *GlobalLock) Unlock() error {
 
 	resp, err := g.redis.Eval(ctx, script, []string{g.uniqueKey}, g.value).Result()
 	if err != nil {
-		if g.options.logger != nil {
-			g.options.logger.Infof(g.ctx, "global unlock may have failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
-		}
-		// 即使删除失败也继续执行，因为锁可能会自动过期
+		g.options.logger.Infof(g.ctx, "GlobalLock Unlock may have failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
+		return fmt.Errorf("lock was already released or owned by another client")
 	}
+
+	g.isCleaned = true
 
 	if delCount, ok := resp.(int64); ok && delCount == 1 {
 		return nil
 	}
-	// 修复空指针解引用：添加nil检查
-	if g.options.logger != nil {
-		g.options.logger.Infof(g.ctx, "global unlock may have failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
-	}
+
+	g.options.logger.Infof(g.ctx, "GlobalLock Unlock may have failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
+
 	return fmt.Errorf("lock was already released or owned by another client")
 }
 
@@ -160,7 +165,7 @@ func (g *GlobalLock) startRefresh() {
 		defer func() {
 			// 确保goroutine退出时清理资源
 			if r := recover(); r != nil && g.options.logger != nil {
-				g.options.logger.Errorf(g.ctx, "refresh goroutine panic: %v", r)
+				g.options.logger.Errorf(g.ctx, "GlobalLock startRefresh goroutine panic: %v", r)
 			}
 		}()
 
@@ -203,9 +208,7 @@ func (l *GlobalLock) setOrGetClose() (readyClosed bool) {
 // 执行刷新操作
 func (g *GlobalLock) refreshExec() bool {
 	if g.IsClosed() {
-		if g.options.logger != nil {
-			g.options.logger.Infof(g.ctx, "global lock already closed, key: %s, value: %s", g.uniqueKey, g.value)
-		}
+		g.options.logger.Infof(g.ctx, "global lock already closed, key: %s, value: %s", g.uniqueKey, g.value)
 		return false
 	}
 
@@ -220,24 +223,18 @@ func (g *GlobalLock) refreshExec() bool {
 
 	resp, err := g.redis.Eval(g.ctx, script, []string{g.uniqueKey}, g.value, int(g.options.Expiry.Seconds())).Result()
 	if err != nil {
-		if g.options.logger != nil {
-			g.options.logger.Errorf(g.ctx, "global refresh failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
-		}
+		g.options.logger.Errorf(g.ctx, "GlobalLock refreshExec failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
 
 		newCount := atomic.AddInt64(&g.refreshErrCount, 1)
 		if newCount >= 3 {
 			g.setOrGetClose()
-			if g.options.logger != nil {
-				g.options.logger.Errorf(g.ctx, "global refresh failed, lock may be lost 3 times, key: %s, value: %s", g.uniqueKey, g.value)
-			}
+			g.options.logger.Errorf(g.ctx, "GlobalLock refreshExec failed, lock may be lost 3 times, key: %s, value: %s", g.uniqueKey, g.value)
 		}
 		return false
 	}
 
 	if refreshed, ok := resp.(int64); !ok || refreshed != 1 {
-		if g.options.logger != nil {
-			g.options.logger.Errorf(g.ctx, "global refresh failed, lock may be lost, key: %s, value: %s", g.uniqueKey, g.value)
-		}
+		g.options.logger.Errorf(g.ctx, "GlobalLock refreshExec failed, lock may be lost, key: %s, value: %s", g.uniqueKey, g.value)
 		g.setOrGetClose()
 		return false
 	}
@@ -260,6 +257,14 @@ func (l *GlobalLock) GetValue() string {
 
 // unlockWithContext 使用指定context执行unlock，避免goroutine卡住
 func (g *GlobalLock) unlockWithContext(ctx context.Context) error {
+	g.closeLock.Lock()
+	defer g.closeLock.Unlock()
+
+	if g.isCleaned {
+		return nil
+	}
+	g.isClosed = true
+
 	script := `
 	if redis.call('get', KEYS[1]) == ARGV[1] then
 		return redis.call('del', KEYS[1])
@@ -270,11 +275,10 @@ func (g *GlobalLock) unlockWithContext(ctx context.Context) error {
 
 	resp, err := g.redis.Eval(ctx, script, []string{g.uniqueKey}, g.value).Result()
 	if err != nil {
-		if g.options.logger != nil {
-			g.options.logger.Infof(ctx, "global unlock may have failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
-		}
+		g.options.logger.Infof(ctx, "GlobalLock unlockWithContext may have failed: %v, key: %s, value: %s", err, g.uniqueKey, g.value)
 		return err
 	}
+	g.isCleaned = true
 
 	if delCount, ok := resp.(int64); ok && delCount == 1 {
 		return nil

@@ -107,12 +107,29 @@ func TestNewGlobalLock(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, lock.GetValue())
 		assert.False(t, lock.IsClosed())
-	})
 
-	t.Run("创建锁时UUID生成失败", func(t *testing.T) {
-		// 这个测试需要模拟uuid.NewV7()失败，在实际中较难触发
-		// 通常可以跳过或者使用mock来测试
-		t.Skip("很难模拟UUID生成失败的情况")
+		b, err := lock.Lock()
+		require.NoError(t, err)
+		assert.True(t, b)
+
+		time.Sleep(time.Second*5)
+
+		resp, err := redisClient.Get(ctx, "test-key").Result()
+		require.NoError(t, err)
+		assert.Equal(t, lock.GetValue(), resp)
+
+
+		err = lock.Unlock()
+		require.NoError(t, err)
+
+		resp, err = redisClient.Get(ctx, "test-key").Result()
+		assert.Equal(t, redis.Nil, err)
+		assert.Empty(t, resp)
+	
+
+		err = lock.Unlock()
+		require.NoError(t, err)
+
 	})
 }
 

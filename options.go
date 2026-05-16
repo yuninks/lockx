@@ -54,6 +54,9 @@ func WithLockTimeout(t time.Duration) Option {
 // 日志
 func WithLogger(logger Logger) Option {
 	return func(o *option) {
+		if logger == nil {
+			o.logger = &print{}
+		}
 		o.logger = logger
 	}
 }
